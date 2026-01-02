@@ -120,6 +120,7 @@ async function sendMessage(businessId, conversationId, messageText) {
     const payload = {
         business_id: businessId,
         conversation_id: conversationId,
+        message_type: "text",  // This was missing!
         message: {
             text: messageText
         }
