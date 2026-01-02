@@ -1,5 +1,9 @@
 // api/webhook.js
-// This handles incoming webhook events from TikTok
+// This handles incoming webhook events from TikTok and sends auto-replies
+
+// Your TikTok API credentials
+const APP_ID = '7576146137725878288';
+const ACCESS_TOKEN = 'act.UevSun6gz95HQEH7YCBumkDvLmVDz8PdHrEnaPoZw70J509JkqzSuOxZIYeu!6197.s1'; // Replace with your current access token
 
 export default async function handler(req, res) {
     // Only accept POST requests
@@ -27,31 +31,16 @@ export default async function handler(req, res) {
         // Handle different event types
         switch (webhookData.event) {
             case 'im_receive_msg':
-                handleIncomingMessage(webhookData, content);
-                break;
-            case 'im_send_msg':
-                handleSentMessage(webhookData, content);
+                await handleIncomingMessage(webhookData, content);
                 break;
             case 'im_receive_msg_eu':
-                handleEUMessage(webhookData, content);
+                console.log('🇪🇺 EU message received - limited data available');
                 break;
-            case 'im_referral_msg':
-                handleReferralMessage(webhookData, content);
-                break;
-            case 'im_mark_read_msg':
-                handleMarkRead(webhookData, content);
-                break;
-            case 'im_auto_message_config_update':
-                handleAutoMessageUpdate(webhookData, content);
-                break;
-            case 'im_auto_message_audit_update':
-                handleAutoMessageAudit(webhookData, content);
-                break;
-            case 'im_receive_high_intent_comment':
-                handleHighIntentComment(webhookData, content);
+            case 'im_send_msg':
+                console.log('📤 Message sent successfully');
                 break;
             default:
-                console.log('Unknown event type:', webhookData.event);
+                console.log('Other event type:', webhookData.event);
         }
         
         // Always respond with 200 OK to acknowledge receipt
@@ -71,90 +60,89 @@ export default async function handler(req, res) {
     }
 }
 
-// Handle incoming messages from users
-function handleIncomingMessage(webhookData, content) {
+// Handle incoming messages from users and send auto-reply
+async function handleIncomingMessage(webhookData, content) {
     console.log('📨 INCOMING MESSAGE');
     console.log('From:', content.from);
     console.log('To:', content.to);
     console.log('Conversation ID:', content.conversation_id);
     console.log('Message Type:', content.type);
     
+    // Only auto-reply to text messages
     if (content.type === 'text') {
-        console.log('Message:', content.text.body);
-    } else if (content.type === 'image') {
-        console.log('Image Media ID:', content.image.media_id);
-    }
-    
-    console.log('Is Follower:', content.is_follower);
-    
-    // TODO: Add your auto-reply logic here
-    // You could call TikTok's send message API to respond automatically
-}
-
-// Handle messages you sent
-function handleSentMessage(webhookData, content) {
-    console.log('📤 SENT MESSAGE');
-    console.log('From:', content.from);
-    console.log('To:', content.to);
-    console.log('Message Type:', content.type);
-    
-    if (content.type === 'text') {
-        console.log('Message:', content.text.body);
-    }
-}
-
-// Handle EU messages (limited data)
-function handleEUMessage(webhookData, content) {
-    console.log('🇪🇺 EU MESSAGE RECEIVED');
-    console.log('To:', content.to);
-    console.log('Timestamp:', new Date(content.timestamp).toISOString());
-    console.log('Note: Full message content not available for EU messages');
-}
-
-// Handle referral messages (from ads or links)
-function handleReferralMessage(webhookData, content) {
-    console.log('🔗 REFERRAL MESSAGE');
-    console.log('From:', content.from);
-    console.log('Referral Source:', content.referral.source);
-    
-    if (content.referral.source === 'ad') {
-        console.log('Ad ID:', content.referral.ad.ad_id);
-        console.log('Advertiser ID:', content.referral.ad.advertiser_id);
-    } else if (content.referral.source === 'short_link') {
-        console.log('Ref:', content.referral.short_link.ref);
-        console.log('Prefilled Message:', content.referral.short_link.prefilled_message);
+        const userMessage = content.text.body;
+        console.log('User Message:', userMessage);
+        
+        // Generate auto-reply based on user message
+        const autoReply = generateAutoReply(userMessage);
+        
+        // Send the auto-reply
+        try {
+            await sendMessage(
+                webhookData.user_openid, // business_id
+                content.conversation_id,
+                autoReply
+            );
+            console.log('✅ Auto-reply sent successfully');
+        } catch (error) {
+            console.error('❌ Failed to send auto-reply:', error);
+        }
+    } else {
+        console.log('Not a text message, skipping auto-reply');
     }
 }
 
-// Handle mark as read events
-function handleMarkRead(webhookData, content) {
-    console.log('✅ MESSAGES MARKED AS READ');
-    console.log('From:', content.from);
-    console.log('Last Read Timestamp:', new Date(content.read.last_read_timestamp).toISOString());
-}
-
-// Handle automatic message config updates
-function handleAutoMessageUpdate(webhookData, content) {
-    console.log('⚙️ AUTO MESSAGE CONFIG UPDATE');
-    console.log('Type:', content.auto_message_type);
-    console.log('Action:', content.auto_message_action);
-    console.log('Message ID:', content.auto_message_id);
-}
-
-// Handle automatic message audit updates
-function handleAutoMessageAudit(webhookData, content) {
-    console.log('🔍 AUTO MESSAGE AUDIT UPDATE');
-    console.log('Type:', content.auto_message_type);
-    console.log('Status:', content.audit_status);
-    console.log('Message ID:', content.auto_message_id);
-}
-
-// Handle high intent comments
-function handleHighIntentComment(webhookData, content) {
-    console.log('💬 HIGH INTENT COMMENT');
-    console.log('From:', content.from);
-    console.log('Comment:', content.comment_text);
-    console.log('Comment ID:', content.comment_id);
+// Generate an auto-reply message based on user input
+function generateAutoReply(userMessage) {
+    const lowerMessage = userMessage.toLowerCase();
     
-    // TODO: You might want to automatically reach out via DM
+    // Simple keyword-based responses
+    if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
+        return "Hello! 👋 Thanks for reaching out. How can I help you today?";
+    } else if (lowerMessage.includes('price') || lowerMessage.includes('cost')) {
+        return "For pricing information, please visit our website or let me know what specific product you're interested in!";
+    } else if (lowerMessage.includes('hours') || lowerMessage.includes('open')) {
+        return "We're open Monday to Friday, 9 AM - 6 PM. How can I assist you?";
+    } else if (lowerMessage.includes('help')) {
+        return "I'm here to help! Please let me know what you need assistance with.";
+    } else if (lowerMessage.includes('thank')) {
+        return "You're welcome! Feel free to reach out if you have any other questions. 😊";
+    } else {
+        // Default response for unrecognized messages
+        return `Thanks for your message! I've received: "${userMessage}". Someone from our team will get back to you shortly!`;
+    }
+}
+
+// Send a message via TikTok Business Messaging API
+async function sendMessage(businessId, conversationId, messageText) {
+    const url = 'https://business-api.tiktok.com/open_api/v1.3/business/message/send/';
+    
+    const payload = {
+        business_id: businessId,
+        conversation_id: conversationId,
+        message: {
+            text: messageText
+        }
+    };
+    
+    console.log('Sending message to TikTok API:', payload);
+    
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Access-Token': ACCESS_TOKEN
+        },
+        body: JSON.stringify(payload)
+    });
+    
+    const data = await response.json();
+    
+    if (data.code !== 0) {
+        console.error('TikTok API Error:', data);
+        throw new Error(`TikTok API Error: ${data.message}`);
+    }
+    
+    console.log('Message sent successfully:', data);
+    return data;
 }
