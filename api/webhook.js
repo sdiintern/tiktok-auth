@@ -64,8 +64,17 @@ export default async function handler(req, res) {
 async function handleIncomingMessage(webhookData, content) {
     console.log('📨 INCOMING MESSAGE');
     console.log('From:', content.from);
+    console.log('From User Role:', content.from_user?.role);
+    console.log('To User Role:', content.to_user?.role);
     console.log('Conversation ID:', content.conversation_id);
     console.log('Message Type:', content.type);
+    
+    // CRITICAL: Only respond to messages FROM personal accounts (users)
+    // Ignore messages FROM business accounts (our own messages)
+    if (content.from_user?.role === 'business_account') {
+        console.log('⚠️ Message is from business account (our bot) - IGNORING to prevent loop');
+        return;
+    }
     
     // Only process text messages
     if (content.type !== 'text') {
