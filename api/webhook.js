@@ -1,9 +1,18 @@
 // api/webhook.js
-// This handles incoming webhook events from TikTok and sends auto-replies
+// TikTok webhook handler with AI agent integration
 
-// Your TikTok API credentials
+// TikTok API credentials
 const APP_ID = '7576146137725878288';
-const ACCESS_TOKEN = 'act.UevSun6gz95HQEH7YCBumkDvLmVDz8PdHrEnaPoZw70J509JkqzSuOxZIYeu!6197.s1'; // Replace with your current access token
+const ACCESS_TOKEN = 'act.UevSun6gz95HQEH7YCBumkDvLmVDz8PdHrEnaPoZw70J509JkqzSuOxZIYeu!6197.s1';
+
+// AI Agent URLs
+const CREATE_CHAT_URL = "https://aibot-backend-xl3x.onrender.com/create-chat";
+const SEND_MESSAGE_URL = "https://aibot-backend-xl3x.onrender.com/send-message";
+const AI_MODEL = "azure~anthropic.claude-4-sonnet";
+
+// Store chat sessions (conversation_id -> chat_id mapping)
+// In production, you'd want to use a database instead of memory
+const chatSessions = new Map();
 
 export default async function handler(req, res) {
     // Only accept POST requests
@@ -12,15 +21,13 @@ export default async function handler(req, res) {
     }
 
     try {
-        // Get the webhook data from TikTok
         const webhookData = req.body;
         
         console.log('=== NEW WEBHOOK EVENT ===');
         console.log('Event Type:', webhookData.event);
         console.log('Timestamp:', new Date(webhookData.create_time * 1000).toISOString());
-        console.log('Full Data:', JSON.stringify(webhookData, null, 2));
         
-        // Parse the content field (it's a JSON string)
+        // Parse the content field
         let content = {};
         try {
             content = JSON.parse(webhookData.content);
@@ -28,22 +35,14 @@ export default async function handler(req, res) {
             console.log('Could not parse content:', e);
         }
         
-        // Handle different event types
-        switch (webhookData.event) {
-            case 'im_receive_msg':
-                await handleIncomingMessage(webhookData, content);
-                break;
-            case 'im_receive_msg_eu':
-                console.log('🇪🇺 EU message received - limited data available');
-                break;
-            case 'im_send_msg':
-                console.log('📤 Message sent successfully');
-                break;
-            default:
-                console.log('Other event type:', webhookData.event);
+        // Handle incoming messages
+        if (webhookData.event === 'im_receive_msg') {
+            await handleIncomingMessage(webhookData, content);
+        } else {
+            console.log('Other event type:', webhookData.event);
         }
         
-        // Always respond with 200 OK to acknowledge receipt
+        // Always respond with 200 OK
         return res.status(200).json({ 
             success: true, 
             message: 'Webhook received',
@@ -52,7 +51,6 @@ export default async function handler(req, res) {
         
     } catch (error) {
         console.error('Error processing webhook:', error);
-        // Still return 200 to prevent TikTok from retrying
         return res.status(200).json({ 
             success: false, 
             error: error.message 
@@ -60,91 +58,138 @@ export default async function handler(req, res) {
     }
 }
 
-// Handle incoming messages from users and send auto-reply
+// Handle incoming messages and get AI response
 async function handleIncomingMessage(webhookData, content) {
     console.log('📨 INCOMING MESSAGE');
     console.log('From:', content.from);
-    console.log('To:', content.to);
     console.log('Conversation ID:', content.conversation_id);
     console.log('Message Type:', content.type);
-    console.log('Unique Identifier:', content.unique_identifier);
-    console.log('Full Content Object:', JSON.stringify(content, null, 2));
     
-    // Only auto-reply to text messages
-    if (content.type === 'text') {
-        const userMessage = content.text.body;
-        console.log('User Message:', userMessage);
+    // Only process text messages
+    if (content.type !== 'text') {
+        console.log('Not a text message, skipping');
+        return;
+    }
+    
+    const userMessage = content.text.body;
+    console.log('User Message:', userMessage);
+    
+    try {
+        // Get or create AI chat session for this TikTok conversation
+        let aiChatId = chatSessions.get(content.conversation_id);
         
-        // Get the recipient ID - try multiple fields
-        const recipientId = content.unique_identifier || content.from_user?.id;
-        console.log('Recipient ID to use:', recipientId);
-        
-        if (!recipientId) {
-            console.error('❌ Cannot send reply - no recipient ID found');
-            return;
+        if (!aiChatId) {
+            console.log('Creating new AI chat session...');
+            aiChatId = await createAIChat();
+            chatSessions.set(content.conversation_id, aiChatId);
+            console.log('AI Chat ID:', aiChatId);
+        } else {
+            console.log('Using existing AI Chat ID:', aiChatId);
         }
         
-        // Generate auto-reply based on user message
-        const autoReply = generateAutoReply(userMessage);
+        // Send message to AI agent and get response
+        console.log('Sending message to AI agent...');
+        const aiResponse = await sendMessageToAI(aiChatId, userMessage);
+        console.log('AI Response:', aiResponse);
         
-        // Send the auto-reply
+        // Send AI's response back to user on TikTok
+        await sendTikTokMessage(
+            webhookData.user_openid,
+            content.conversation_id,
+            aiResponse
+        );
+        
+        console.log('✅ AI response sent to user successfully');
+        
+    } catch (error) {
+        console.error('❌ Error handling message:', error);
+        
+        // Send fallback message if AI fails
         try {
-            await sendMessage(
-                webhookData.user_openid, // business_id
+            await sendTikTokMessage(
+                webhookData.user_openid,
                 content.conversation_id,
-                recipientId, // recipient unique_identifier
-                autoReply
+                "I'm having trouble processing your message right now. Please try again in a moment."
             );
-            console.log('✅ Auto-reply sent successfully');
-        } catch (error) {
-            console.error('❌ Failed to send auto-reply:', error);
+        } catch (fallbackError) {
+            console.error('Failed to send fallback message:', fallbackError);
         }
-    } else {
-        console.log('Not a text message, skipping auto-reply');
     }
 }
 
-// Generate an auto-reply message based on user input
-function generateAutoReply(userMessage) {
-    const lowerMessage = userMessage.toLowerCase();
+// Create a new AI chat session
+async function createAIChat() {
+    console.log('Creating AI chat with model:', AI_MODEL);
     
-    // Simple keyword-based responses
-    if (lowerMessage.includes('hello') || lowerMessage.includes('hi')) {
-        return "Hello! 👋 Thanks for reaching out. How can I help you today?";
-    } else if (lowerMessage.includes('price') || lowerMessage.includes('cost')) {
-        return "For pricing information, please visit our website or let me know what specific product you're interested in!";
-    } else if (lowerMessage.includes('hours') || lowerMessage.includes('open')) {
-        return "We're open Monday to Friday, 9 AM - 6 PM. How can I assist you?";
-    } else if (lowerMessage.includes('help')) {
-        return "I'm here to help! Please let me know what you need assistance with.";
-    } else if (lowerMessage.includes('thank')) {
-        return "You're welcome! Feel free to reach out if you have any other questions. 😊";
+    const response = await fetch(CREATE_CHAT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model: AI_MODEL
+        })
+    });
+    
+    if (!response.ok) {
+        throw new Error(`Failed to create AI chat: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('AI chat created:', data);
+    
+    return data.id;
+}
+
+// Send message to AI agent and get response
+async function sendMessageToAI(chatId, message) {
+    console.log('Sending to AI - Chat ID:', chatId, 'Message:', message);
+    
+    const response = await fetch(SEND_MESSAGE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            content: message,
+            chat_id: chatId
+        })
+    });
+    
+    if (!response.ok) {
+        throw new Error(`Failed to send message to AI: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    console.log('AI response data:', data);
+    
+    // Extract the text response from AI
+    // Your AI returns: { response: { content: "text here" } }
+    if (data.response?.content) {
+        return data.response.content;
+    } else if (data.response) {
+        return data.response;
     } else {
-        // Default response for unrecognized messages
-        return `Thanks for your message! I've received: "${userMessage}". Someone from our team will get back to you shortly!`;
+        // Fallback if format is unexpected
+        console.warn('Unexpected AI response format:', data);
+        return "Sorry, I couldn't process that response.";
     }
 }
 
 // Send a message via TikTok Business Messaging API
-async function sendMessage(businessId, conversationId, recipientId, messageText) {
+async function sendTikTokMessage(businessId, conversationId, messageText) {
     const url = 'https://business-api.tiktok.com/open_api/v1.3/business/message/send/';
     
-    console.log('=== Preparing to send message ===');
+    console.log('Sending TikTok message...');
     console.log('Business ID:', businessId);
     console.log('Conversation ID:', conversationId);
-    console.log('Message Text:', messageText);
+    console.log('Message:', messageText);
     
     const payload = {
         business_id: businessId,
-        recipient_type: "CONVERSATION",  // String, not number
-        recipient: conversationId,  // Use conversation_id, not unique_identifier
+        recipient_type: "CONVERSATION",
+        recipient: conversationId,
         message_type: "TEXT",
         text: {
             body: messageText
         }
     };
-    
-    console.log('Full Payload:', JSON.stringify(payload, null, 2));
     
     const response = await fetch(url, {
         method: 'POST',
@@ -162,6 +207,6 @@ async function sendMessage(businessId, conversationId, recipientId, messageText)
         throw new Error(`TikTok API Error: ${data.message}`);
     }
     
-    console.log('Message sent successfully:', data);
+    console.log('TikTok message sent successfully');
     return data;
 }
