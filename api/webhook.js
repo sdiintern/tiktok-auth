@@ -132,20 +132,19 @@ async function sendMessage(businessId, conversationId, recipientId, messageText)
     console.log('=== Preparing to send message ===');
     console.log('Business ID:', businessId);
     console.log('Conversation ID:', conversationId);
-    console.log('Recipient ID:', recipientId);
     console.log('Message Text:', messageText);
     
-    // Try without the 'to' field first
     const payload = {
         business_id: businessId,
-        conversation_id: conversationId,
+        recipient_type: "CONVERSATION",  // String, not number
+        recipient: conversationId,  // Use conversation_id, not unique_identifier
         message_type: "TEXT",
-        message: {
-            text: messageText
+        text: {
+            body: messageText
         }
     };
     
-    console.log('Full Payload (without to/recipient_type):', JSON.stringify(payload, null, 2));
+    console.log('Full Payload:', JSON.stringify(payload, null, 2));
     
     const response = await fetch(url, {
         method: 'POST',
