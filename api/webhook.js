@@ -35,9 +35,11 @@ export default async function handler(req, res) {
             console.log('Could not parse content:', e);
         }
         
-        // Handle incoming messages
+        // Only handle incoming messages from USERS (not messages we send)
         if (webhookData.event === 'im_receive_msg') {
             await handleIncomingMessage(webhookData, content);
+        } else if (webhookData.event === 'im_send_msg') {
+            console.log('Message sent by bot - ignoring to avoid loop');
         } else {
             console.log('Other event type:', webhookData.event);
         }
