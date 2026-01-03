@@ -68,11 +68,21 @@ async function handleIncomingMessage(webhookData, content) {
     console.log('Conversation ID:', content.conversation_id);
     console.log('Message Type:', content.type);
     console.log('Unique Identifier:', content.unique_identifier);
+    console.log('Full Content Object:', JSON.stringify(content, null, 2));
     
     // Only auto-reply to text messages
     if (content.type === 'text') {
         const userMessage = content.text.body;
         console.log('User Message:', userMessage);
+        
+        // Get the recipient ID - try multiple fields
+        const recipientId = content.unique_identifier || content.from_user?.id;
+        console.log('Recipient ID to use:', recipientId);
+        
+        if (!recipientId) {
+            console.error('❌ Cannot send reply - no recipient ID found');
+            return;
+        }
         
         // Generate auto-reply based on user message
         const autoReply = generateAutoReply(userMessage);
@@ -82,7 +92,7 @@ async function handleIncomingMessage(webhookData, content) {
             await sendMessage(
                 webhookData.user_openid, // business_id
                 content.conversation_id,
-                content.unique_identifier, // recipient unique_identifier
+                recipientId, // recipient unique_identifier
                 autoReply
             );
             console.log('✅ Auto-reply sent successfully');
@@ -119,6 +129,12 @@ function generateAutoReply(userMessage) {
 async function sendMessage(businessId, conversationId, recipientId, messageText) {
     const url = 'https://business-api.tiktok.com/open_api/v1.3/business/message/send/';
     
+    console.log('=== Preparing to send message ===');
+    console.log('Business ID:', businessId);
+    console.log('Conversation ID:', conversationId);
+    console.log('Recipient ID:', recipientId);
+    console.log('Message Text:', messageText);
+    
     const payload = {
         business_id: businessId,
         conversation_id: conversationId,
@@ -130,7 +146,7 @@ async function sendMessage(businessId, conversationId, recipientId, messageText)
         }
     };
     
-    console.log('Sending message to TikTok API:', payload);
+    console.log('Full Payload:', JSON.stringify(payload, null, 2));
     
     const response = await fetch(url, {
         method: 'POST',
