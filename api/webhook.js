@@ -67,6 +67,7 @@ async function handleIncomingMessage(webhookData, content) {
     console.log('To:', content.to);
     console.log('Conversation ID:', content.conversation_id);
     console.log('Message Type:', content.type);
+    console.log('Unique Identifier:', content.unique_identifier);
     
     // Only auto-reply to text messages
     if (content.type === 'text') {
@@ -81,6 +82,7 @@ async function handleIncomingMessage(webhookData, content) {
             await sendMessage(
                 webhookData.user_openid, // business_id
                 content.conversation_id,
+                content.unique_identifier, // recipient unique_identifier
                 autoReply
             );
             console.log('✅ Auto-reply sent successfully');
@@ -114,14 +116,15 @@ function generateAutoReply(userMessage) {
 }
 
 // Send a message via TikTok Business Messaging API
-async function sendMessage(businessId, conversationId, messageText) {
+async function sendMessage(businessId, conversationId, recipientId, messageText) {
     const url = 'https://business-api.tiktok.com/open_api/v1.3/business/message/send/';
     
     const payload = {
         business_id: businessId,
         conversation_id: conversationId,
         recipient_type: "CONVERSATION",
-        message_type: "TEXT",  // This was missing!
+        to: recipientId,  // The unique_identifier of the person receiving the message
+        message_type: "TEXT",
         message: {
             text: messageText
         }
